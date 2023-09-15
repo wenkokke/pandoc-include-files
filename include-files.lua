@@ -86,20 +86,23 @@ local function transclude(cb)
     local buffer_last_heading_level = last_heading_level
 
     local blocks = List:new()
-    for line in cb.text:gmatch('[^\n]+') do
-        if line:sub(1, 2) ~= '//' then
-            local fh = io.open(line)
-            if not fh then
-                io.stderr:write("Cannot open file " .. line .. " | Skipping includes\n")
+    for file_path in cb.text:gmatch('[^\n]+') do
+        if file_path:sub(1, 2) ~= '//' then
+            -- determine the path from project root to file
+            local file_path_from_root_dir = path.make_relative(path.join({system.get_working_directory(), file_path}),
+                root_dir)
+            -- open the file
+            local file_handle = io.open(file_path)
+            if not file_handle then
+                io.stderr:write("Cannot open " .. file_path_from_root_dir .. "\n")
             else
                 -- write the file to the log
-                local include_path = path.make_relative(path.join({system.get_working_directory(), line}), root_dir)
-                include_files_log:insert(include_path)
+                include_files_log:insert(file_path_from_root_dir)
                 -- read file as the given format with global reader options
-                local contents = pandoc.read(fh:read '*a', format, PANDOC_READER_OPTIONS).blocks
+                local contents = pandoc.read(file_handle:read '*a', format, PANDOC_READER_OPTIONS).blocks
                 last_heading_level = 0
                 -- recursive transclusion
-                contents = system.with_working_directory(path.directory(line), function()
+                contents = system.with_working_directory(path.directory(file_path), function()
                     return pandoc.walk_block(pandoc.Div(contents), {
                         Header = update_last_level,
                         CodeBlock = transclude
@@ -107,8 +110,8 @@ local function transclude(cb)
                 end).content
                 --- reset to level before recursion
                 last_heading_level = buffer_last_heading_level
-                blocks:extend(update_contents(contents, shift_heading_level_by, path.directory(line)))
-                fh:close()
+                blocks:extend(update_contents(contents, shift_heading_level_by, path.directory(file_path)))
+                file_handle:close()
             end
         end
     end
